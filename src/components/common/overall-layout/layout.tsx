@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils";
 // Using a version-based key ensures fresh mount on updates, preventing cache issues
 const ConnectWallet = dynamic(
   () => import("@/components/common/cardano-objects/connect-wallet"),
-  { 
+  {
     ssr: false,
     // Force re-mount on navigation to handle cache issues
     loading: () => null,
@@ -63,21 +63,21 @@ class WalletErrorBoundary extends Component<
 
   componentDidCatch(error: Error, errorInfo: any) {
     console.error('[WalletErrorBoundary] Error caught:', error, errorInfo);
-    
+
     // Handle specific wallet errors
     if (error.message.includes("account changed")) {
       console.log("[WalletErrorBoundary] Wallet account changed, reloading page...");
       window.location.reload();
       return;
     }
-    
+
     // Handle UTXOS-specific errors
     if (error.message.includes("UTXOS") || error.message.includes("UTXOS_PROJECT_ID") || error.message.includes("Web3Wallet")) {
       console.log("[WalletErrorBoundary] UTXOS wallet error detected:", error.message);
       // Don't reload for UTXOS errors, let user retry
       return;
     }
-    
+
     // Handle Blockfrost/API errors
     if (error.message.includes("Blockfrost") || error.message.includes("blockfrost") || error.message.includes("429")) {
       console.log("[WalletErrorBoundary] API error detected, may be rate limiting");
@@ -95,52 +95,52 @@ class WalletErrorBoundary extends Component<
 }
 
 // Component to track layout content changes
-function LayoutContentTracker({ 
-  children, 
-  router, 
-  pageIsPublic, 
-  userAddress 
-}: { 
-  children: ReactNode; 
+function LayoutContentTracker({
+  children,
+  router,
+  pageIsPublic,
+  userAddress
+}: {
+  children: ReactNode;
   router: ReturnType<typeof useRouter>;
   pageIsPublic: boolean;
   userAddress: string | undefined;
 }) {
   const prevPathRef = useRef<string>(router.pathname);
   const prevQueryRef = useRef<string>(JSON.stringify(router.query));
-  
+
   useEffect(() => {
     const handleRouteChangeStart = (url: string) => {
       // Route change started
     };
-    
+
     const handleRouteChangeComplete = (url: string) => {
       prevPathRef.current = router.pathname;
       prevQueryRef.current = JSON.stringify(router.query);
     };
-    
+
     const handleRouteChangeError = (err: Error, url: string) => {
       // Route change error
     };
-    
+
     router.events.on('routeChangeStart', handleRouteChangeStart);
     router.events.on('routeChangeComplete', handleRouteChangeComplete);
     router.events.on('routeChangeError', handleRouteChangeError);
-    
+
     return () => {
       router.events.off('routeChangeStart', handleRouteChangeStart);
       router.events.off('routeChangeComplete', handleRouteChangeComplete);
       router.events.off('routeChangeError', handleRouteChangeError);
     };
   }, [router]);
-  
+
   useEffect(() => {
     if (router.pathname !== prevPathRef.current || JSON.stringify(router.query) !== prevQueryRef.current) {
       prevPathRef.current = router.pathname;
       prevQueryRef.current = JSON.stringify(router.query);
     }
   }, [router.pathname, router.query]);
-  
+
   return <>{children}</>;
 }
 
@@ -155,26 +155,26 @@ export default function RootLayout({
   const { user, isLoading: isLoadingUser } = useUser();
   const router = useRouter();
   const { appWallet } = useAppWallet();
-  const { multisigWallet } = useMultisigWallet();
+  const { multisigWallet, builtWallet } = useMultisigWallet();
   const { generateNsec } = useNostrChat();
   const { isEnabled: isUtxosEnabled } = useUTXOS();
 
   const userAddress = useUserStore((state) => state.userAddress);
   const setUserAddress = useUserStore((state) => state.setUserAddress);
   const ctx = api.useUtils();
-  
+
   // State for wallet authorization modal
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [checkingSession, setCheckingSession] = useState(false);
   const [hasCheckedSession, setHasCheckedSession] = useState(false); // Prevent duplicate checks
   const [showPostAuthLoading, setShowPostAuthLoading] = useState(false); // Show loading after authorization
-  
+
   // Use WalletState for connection check
   const connected = String(walletState) === String(WalletState.CONNECTED);
   const anyWalletConnected = connected || isUtxosEnabled;
   // Use connectedWalletInstance if available, otherwise fall back to wallet
-  const activeWallet = connectedWalletInstance && Object.keys(connectedWalletInstance).length > 0 
-    ? connectedWalletInstance 
+  const activeWallet = connectedWalletInstance && Object.keys(connectedWalletInstance).length > 0
+    ? connectedWalletInstance
     : wallet;
 
   // Global error handler for unhandled promise rejections
@@ -189,14 +189,14 @@ export default function RootLayout({
           window.location.reload();
           return;
         }
-        
+
         // Handle UTXOS-specific errors
         if (error.message && (error.message.includes("UTXOS") || error.message.includes("Web3Wallet"))) {
           console.log("[GlobalHandler] UTXOS error caught:", error.message);
           event.preventDefault(); // Prevent unhandled rejection log
           return;
         }
-        
+
         // Handle "too many requests" errors silently (rate limiting)
         if (error.message && error.message.includes("too many requests")) {
           event.preventDefault(); // Prevent the error from being logged to console
@@ -206,7 +206,7 @@ export default function RootLayout({
     };
 
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
-    
+
     return () => {
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
@@ -216,10 +216,10 @@ export default function RootLayout({
     onMutate: async (variables) => {
       // Cancel outgoing refetches
       await ctx.user.getUserByAddress.cancel({ address: variables.address });
-      
+
       // Snapshot previous value
       const previous = ctx.user.getUserByAddress.getData({ address: variables.address });
-      
+
       // Optimistically update (only if old exists, otherwise wait for server response)
       if (previous) {
         ctx.user.getUserByAddress.setData(
@@ -233,7 +233,7 @@ export default function RootLayout({
           }
         );
       }
-      
+
       return { previous };
     },
     onError: (err, variables, context) => {
@@ -254,13 +254,13 @@ export default function RootLayout({
       if (!variables.address) {
         return { previous: undefined };
       }
-      
+
       // Cancel outgoing refetches
       await ctx.user.getUserByAddress.cancel({ address: variables.address });
-      
+
       // Snapshot previous value
       const previous = ctx.user.getUserByAddress.getData({ address: variables.address });
-      
+
       // Optimistically update
       if (previous) {
         ctx.user.getUserByAddress.setData(
@@ -273,7 +273,7 @@ export default function RootLayout({
           }
         );
       }
-      
+
       return { previous };
     },
     onError: (err, variables, context) => {
@@ -296,13 +296,13 @@ export default function RootLayout({
       setUserAddress(address);
     }
   }, [address, setUserAddress]);
-  
+
   // Also try to get address from wallet directly if useAddress doesn't work
   const fetchingAddressRef = useRef(false);
   useEffect(() => {
     // Prevent multiple simultaneous calls
     if (fetchingAddressRef.current) return;
-    
+
     if (connected && activeWallet && !address && !userAddress) {
       fetchingAddressRef.current = true;
       activeWallet.getUsedAddresses()
@@ -340,7 +340,7 @@ export default function RootLayout({
 
     async function initializeWallet() {
       if (!walletAddress) return;
-      
+
       try {
         // Get stake address
         const stakeAddresses = await activeWallet.getRewardAddresses();
@@ -374,7 +374,7 @@ export default function RootLayout({
         }
       }
     }
-    
+
     initializeWallet();
   }, [connected, activeWallet, user, userAddress, address, createUser, generateNsec]);
 
@@ -386,13 +386,13 @@ export default function RootLayout({
   const shouldCheckSession = !!anyWalletConnected && !!walletAddressForSession && !checkingSession && !hasCheckedSession && walletAddressForSession.length > 0;
   const { data: walletSessionData, isLoading: isLoadingWalletSession, refetch: refetchWalletSession } = api.auth.getWalletSession.useQuery(
     { address: walletAddressForSession ?? "" },
-    { 
+    {
       enabled: shouldCheckSession,
       refetchOnWindowFocus: false,
       refetchOnMount: false, // Don't refetch on mount to prevent duplicate checks
     }
   );
-  
+
 
   useEffect(() => {
     // Only check session once per wallet connection
@@ -412,7 +412,7 @@ export default function RootLayout({
     if (walletSessionData !== undefined) {
       setHasCheckedSession(true); // Mark as checked to prevent duplicate checks
       const hasSession = walletSessionData.authorized ?? false;
-      
+
       if (!hasSession) {
         // Wallet is connected but doesn't have a session - show authorization modal
         setCheckingSession(true);
@@ -420,7 +420,7 @@ export default function RootLayout({
       }
     }
   }, [anyWalletConnected, user, userAddress, address, walletSessionData, showAuthModal, checkingSession, isLoadingWalletSession, hasCheckedSession]);
-  
+
   // Reset hasCheckedSession when wallet disconnects or address changes
   useEffect(() => {
     if (!anyWalletConnected) {
@@ -429,7 +429,7 @@ export default function RootLayout({
       setShowAuthModal(false);
     }
   }, [anyWalletConnected]);
-  
+
   // Reset hasCheckedSession when address changes (different wallet connected)
   const prevAddressRef = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -456,13 +456,13 @@ export default function RootLayout({
     setHasCheckedSession(true); // Mark as checked so we don't check again
     // Show loading skeleton for smooth transition
     setShowPostAuthLoading(true);
-    
+
     // Wait a moment for the cookie to be set by the browser, then refetch session
     await new Promise(resolve => setTimeout(resolve, 200));
-    
+
     // Refetch session to update state
     await refetchWalletSession();
-    
+
     // Invalidate wallet queries so they refetch with the new session
     // Use a small delay to ensure cookie is available on subsequent requests
     setTimeout(() => {
@@ -473,7 +473,7 @@ export default function RootLayout({
         void ctx.wallet.getUserNewWalletsNotOwner.invalidate({ address: userAddressForInvalidation });
       }
     }, 300);
-    
+
     // Hide loading after a brief delay to allow data to load
     setTimeout(() => {
       setShowPostAuthLoading(false);
@@ -500,7 +500,7 @@ export default function RootLayout({
       setLastVisitedWalletName(appWallet.name);
       // Check if staking is enabled for this wallet
       try {
-        const stakingEnabled = multisigWallet.stakingEnabled();
+        const stakingEnabled = builtWallet?.capabilities.canStake ?? false;
         setLastWalletStakingEnabled(stakingEnabled);
       } catch (error) {
         // Don't update state on error - keep the last known value
@@ -532,7 +532,7 @@ export default function RootLayout({
     const result = isConnecting || (connected && !!address && !user && isLoadingUser);
     return result;
   }, [isConnecting, connected, address, user, isLoadingUser]);
-  
+
   // Only show background loading if:
   // 1. User is loading AND user doesn't exist yet (if user exists, no need to show loading)
   // 2. We have an address (user query is actually running)
@@ -546,7 +546,7 @@ export default function RootLayout({
     const result = isLoadingUser && !!address && address.length > 0 && !!userAddress && !isButtonShowingSpinner;
     return result;
   }, [isLoadingUser, address, userAddress, isButtonShowingSpinner, user]);
-  
+
   // Memoize wallet ID for menu
   const walletIdForMenu = useMemo(() => (router.query.wallet as string) || lastVisitedWalletId || undefined, [router.query.wallet, lastVisitedWalletId]);
 
@@ -563,59 +563,59 @@ export default function RootLayout({
         className="pointer-events-auto relative z-[100] border-b border-gray-300/50 bg-muted/40 pl-2 pr-4 dark:border-white/[0.03] lg:pl-4 lg:pr-6"
         data-header="main"
       >
-          <div className="flex h-14 items-center gap-4 lg:h-16">
-            {/* Mobile menu button - hidden only on public homepage (not logged in) */}
-              {(isLoggedIn || !isHomepage) && (
-              <MobileNavigation
-                showWalletMenu={showWalletMenu}
-                isLoggedIn={isLoggedIn}
-                walletId={walletIdForMenu}
-                fallbackWalletName={lastVisitedWalletName}
-                onClearWallet={clearWalletContext}
-                stakingEnabled={lastWalletStakingEnabled ?? undefined}
-                isWalletPath={isWalletPath}
-              />
-            )}
+        <div className="flex h-14 items-center gap-4 lg:h-16">
+          {/* Mobile menu button - hidden only on public homepage (not logged in) */}
+          {(isLoggedIn || !isHomepage) && (
+            <MobileNavigation
+              showWalletMenu={showWalletMenu}
+              isLoggedIn={isLoggedIn}
+              walletId={walletIdForMenu}
+              fallbackWalletName={lastVisitedWalletName}
+              onClearWallet={clearWalletContext}
+              stakingEnabled={lastWalletStakingEnabled ?? undefined}
+              isWalletPath={isWalletPath}
+            />
+          )}
 
-            {/* Logo - in fixed-width container matching sidebar width */}
-            <div className={`flex items-center md:w-[260px] lg:w-[280px] ${(isLoggedIn || !isHomepage) ? 'flex-1 justify-center md:flex-none md:justify-start' : ''}`}>
-              <Link
-                href="/"
-                className="flex items-center gap-2 rounded-md px-4 py-2 text-sm transition-all duration-200 hover:bg-gray-100/50 dark:hover:bg-white/5 md:px-4"
-              >
-                <Logo />
-                <span className="select-none font-medium tracking-[-0.01em]" style={{ fontSize: '17px' }}>
-                  Multisig Platform
-                </span>
-              </Link>
-            </div>
-
-            {/* Right: Control buttons */}
-            <div className="ml-auto flex items-center gap-2">
-              {!isLoggedIn ? (
-                // On the homepage, the hero renders the wallet connector (avoid double-mount).
-                // On all other routes, show it in the header.
-                isHomepage ? null : <ConnectWallet key="wallet-connector" />
-              ) : (
-                <>
-                  {/* Desktop buttons */}
-                  <div className="hidden items-center space-x-2 md:flex">
-                    <WalletDataLoaderWrapper mode="button" />
-                    <DialogReportWrapper mode="button" />
-                    <UserDropDownWrapper mode="button" />
-                  </div>
-                  {/* Mobile actions menu */}
-                  <MobileActionsMenu>
-                    <WalletDataLoaderWrapper mode="menu-item" />
-                    <DialogReportWrapper mode="menu-item" />
-                    <UserDropDownWrapper mode="menu-item" />
-                    <div className="-mx-2 my-1 h-px bg-border" />
-                    <LogoutWrapper mode="menu-item" />
-                  </MobileActionsMenu>
-                </>
-              )}
-            </div>
+          {/* Logo - in fixed-width container matching sidebar width */}
+          <div className={`flex items-center md:w-[260px] lg:w-[280px] ${(isLoggedIn || !isHomepage) ? 'flex-1 justify-center md:flex-none md:justify-start' : ''}`}>
+            <Link
+              href="/"
+              className="flex items-center gap-2 rounded-md px-4 py-2 text-sm transition-all duration-200 hover:bg-gray-100/50 dark:hover:bg-white/5 md:px-4"
+            >
+              <Logo />
+              <span className="select-none font-medium tracking-[-0.01em]" style={{ fontSize: '17px' }}>
+                Multisig Platform
+              </span>
+            </Link>
           </div>
+
+          {/* Right: Control buttons */}
+          <div className="ml-auto flex items-center gap-2">
+            {!isLoggedIn ? (
+              // On the homepage, the hero renders the wallet connector (avoid double-mount).
+              // On all other routes, show it in the header.
+              isHomepage ? null : <ConnectWallet key="wallet-connector" />
+            ) : (
+              <>
+                {/* Desktop buttons */}
+                <div className="hidden items-center space-x-2 md:flex">
+                  <WalletDataLoaderWrapper mode="button" />
+                  <DialogReportWrapper mode="button" />
+                  <UserDropDownWrapper mode="button" />
+                </div>
+                {/* Mobile actions menu */}
+                <MobileActionsMenu>
+                  <WalletDataLoaderWrapper mode="menu-item" />
+                  <DialogReportWrapper mode="menu-item" />
+                  <UserDropDownWrapper mode="menu-item" />
+                  <div className="-mx-2 my-1 h-px bg-border" />
+                  <LogoutWrapper mode="menu-item" />
+                </MobileActionsMenu>
+              </>
+            )}
+          </div>
+        </div>
       </header>
 
       {/* Content area with sidebar + main */}
@@ -632,11 +632,10 @@ export default function RootLayout({
                       <div className="space-y-1">
                         <Link
                           href="/"
-                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-all duration-200 hover:bg-gray-100/50 dark:hover:bg-white/5 ${
-                            router.pathname === "/"
+                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-all duration-200 hover:bg-gray-100/50 dark:hover:bg-white/5 ${router.pathname === "/"
                               ? "text-white"
                               : "text-muted-foreground hover:text-foreground"
-                          }`}
+                            }`}
                         >
                           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -689,7 +688,7 @@ export default function RootLayout({
                         <AlertCircle className="w-10 h-10 text-red-600 dark:text-red-400" />
                       </div>
                     </div>
-                    
+
                     <div className="space-y-2">
                       <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
                         Something went wrong
@@ -698,7 +697,7 @@ export default function RootLayout({
                         Please try refreshing the page or reconnecting your wallet.
                       </p>
                     </div>
-                    
+
                     <Button
                       onClick={() => window.location.reload()}
                       className="w-full sm:w-auto min-w-[140px]"
@@ -718,7 +717,7 @@ export default function RootLayout({
           </WalletErrorBoundary>
         </main>
       </div>
-      
+
       {/* Wallet Authorization Modal - shows when wallet is connected but not authorized */}
       {(userAddress || address) && (
         <WalletAuthModal

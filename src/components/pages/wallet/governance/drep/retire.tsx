@@ -24,14 +24,14 @@ export default function Retire({ appWallet, manualUtxos }: { appWallet: Wallet; 
   const { newTransaction } = useTransaction();
   const loading = useSiteStore((state) => state.loading);
   const setLoading = useSiteStore((state) => state.setLoading);
-  const { multisigWallet } = useMultisigWallet();
+  const { multisigWallet, builtWallet } = useMultisigWallet();
   const { isProxyEnabled, selectedProxyId } = useProxy();
   const { toast } = useToast();
 
 
   // Get proxies for proxy mode
   const { data: proxies } = api.proxy.getProxiesByUserOrWallet.useQuery(
-    { 
+    {
       walletId: appWallet?.id || undefined,
       userAddress: userAddress || undefined,
     },
@@ -43,14 +43,15 @@ export default function Retire({ appWallet, manualUtxos }: { appWallet: Wallet; 
 
   // Helper function to get multisig inputs (like in register component)
   const getMsInputs = useCallback(async (): Promise<{ utxos: UTxO[]; walletAddress: string }> => {
-    if (!multisigWallet?.getScript().address) {
-      throw new Error("Multisig wallet address not available");
+    const address = builtWallet?.address ?? appWallet.address;
+    if (!address) {
+      throw new Error("Wallet address not available");
     }
     if (!manualUtxos || manualUtxos.length === 0) {
       throw new Error("No UTxOs selected. Please select UTxOs from the selector.");
     }
-    return { utxos: manualUtxos, walletAddress: multisigWallet.getScript().address };
-  }, [multisigWallet?.getScript().address, manualUtxos]);
+    return { utxos: manualUtxos, walletAddress: address };
+  }, [builtWallet?.address, appWallet.address, manualUtxos]);
 
   async function retireProxyDrep(): Promise<void> {
     if (!connected || !userAddress || !multisigWallet || !appWallet) {
@@ -156,8 +157,8 @@ export default function Retire({ appWallet, manualUtxos }: { appWallet: Wallet; 
 
     try {
       const blockchainProvider = getProvider(network);
-      // For legacy wallets, use appWallet address; for SDK wallets, use multisig address
-      const addressToFetch = multisigWallet?.getScript().address || appWallet.address;
+      // For legacy/summon wallets, use builtWallet address or appWallet address; for SDK wallets, use multisig address
+      const addressToFetch = builtWallet?.address ?? appWallet.address;
       if (!addressToFetch) {
         toast({
           title: "Address Error",
@@ -181,14 +182,14 @@ export default function Retire({ appWallet, manualUtxos }: { appWallet: Wallet; 
       }
 
       const txBuilder = getTxBuilder(network);
-      
+
       // For legacy wallets (no multisigWallet), use appWallet values directly (preserves input order)
       // For SDK wallets, use multisigWallet to compute DRep ID and script
       let dRepId: string;
       let drepCbor: string;
       let scriptCbor: string;
       let changeAddress: string;
-      
+
       if (multisigWallet) {
         const drepData = multisigWallet.getDRep(appWallet);
         if (!drepData) {
@@ -229,7 +230,7 @@ export default function Retire({ appWallet, manualUtxos }: { appWallet: Wallet; 
         scriptCbor = appWallet.scriptCbor;
         changeAddress = appWallet.address;
       }
-      
+
       if (!scriptCbor || !changeAddress) {
         toast({
           title: "Script Error",
@@ -238,7 +239,7 @@ export default function Retire({ appWallet, manualUtxos }: { appWallet: Wallet; 
         });
         return;
       }
-      
+
       for (const utxo of selectedUtxos) {
         txBuilder.txIn(
           utxo.input.txHash,
@@ -252,7 +253,7 @@ export default function Retire({ appWallet, manualUtxos }: { appWallet: Wallet; 
         .txInScript(scriptCbor)
         .changeAddress(changeAddress)
         .drepDeregistrationCertificate(dRepId, DREP_DEPOSIT_STRING);
-      
+
       // Only add certificateScript if it's different from the spending script
       // to avoid "extraneous scripts" error
       if (drepCbor !== scriptCbor) {
@@ -278,7 +279,7 @@ export default function Retire({ appWallet, manualUtxos }: { appWallet: Wallet; 
 
   return (
     <div>
-      
+
       <Button
         onClick={() => hasValidProxy ? retireProxyDrep() : retireDrep()}
         disabled={loading || (!hasValidProxy && !drepInfo?.active) || (manualUtxos.length === 0)}

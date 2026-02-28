@@ -1,4 +1,4 @@
-import { DbWalletWithLegacy, Wallet } from "@/types/wallet";
+import { DbWalletWithLegacy, Wallet, WalletCapabilities } from "@/types/wallet";
 import {
   deserializeAddress,
   NativeScript,
@@ -7,6 +7,7 @@ import {
   resolveScriptHashDRepId,
   resolveStakeKeyHash,
   serializeNativeScript,
+  serializeRewardAddress,
   UTxO,
 } from "@meshsdk/core";
 import { getDRepIds } from "@meshsdk/core-cst";
@@ -17,6 +18,8 @@ import {
   decodedToNativeScript,
   normalizeHex,
   scriptHashFromCbor,
+  computeRequiredSigners,
+  detectTypeFromSigParents,
 } from "@/utils/nativeScriptUtils";
 
 function addressToNetwork(address: string): number {
@@ -131,13 +134,13 @@ export type WalletType = 'legacy' | 'sdk' | 'summon';
 
 export function getWalletType(wallet: DbWalletWithLegacy): WalletType {
   if (wallet.rawImportBodies?.multisig) return 'summon';
-  
+
   // Legacy: only payment keys (no stake keys, no DRep keys)
   // External stake credential hash doesn't make it SDK - it's still legacy if only payment keys
   const hasStakeKeys = wallet.signersStakeKeys && wallet.signersStakeKeys.length > 0;
   const hasDRepKeys = wallet.signersDRepKeys && wallet.signersDRepKeys.length > 0;
   if (!hasStakeKeys && !hasDRepKeys) return 'legacy';
-  
+
   return 'sdk';
 }
 
@@ -150,7 +153,7 @@ export function buildMultisigWallet(
   network?: number,
 ): MultisigWallet | undefined {
   const walletType = getWalletType(wallet);
-  
+
   // Only build MultisigWallet for SDK wallets
   if (walletType !== 'sdk') {
     return undefined;
@@ -158,7 +161,7 @@ export function buildMultisigWallet(
 
   const keys: MultisigKey[] = [];
   const resolvedNetwork = resolveWalletNetwork(wallet, network);
-  
+
   // Add payment keys (role 0)
   if (wallet.signersAddresses.length > 0) {
     wallet.signersAddresses.forEach((addr, i) => {
@@ -178,7 +181,7 @@ export function buildMultisigWallet(
       }
     });
   }
-  
+
   // Add staking keys (role 2)
   if (wallet.signersStakeKeys && wallet.signersStakeKeys.length > 0) {
     wallet.signersStakeKeys.forEach((stakeKey, i) => {
@@ -196,7 +199,7 @@ export function buildMultisigWallet(
       }
     });
   }
-  
+
   // Add DRep keys (role 3)
   if (wallet.signersDRepKeys && wallet.signersDRepKeys.length > 0) {
     wallet.signersDRepKeys.forEach((dRepKey, i) => {
@@ -259,7 +262,7 @@ export function buildWallet(
     if (!multisig) {
       throw new Error("rawImportBodies.multisig is required for Summon wallets");
     }
-    
+
     // Always use stored address from rawImportBodies
     const address = multisig.address;
     if (!address) {
@@ -282,22 +285,49 @@ export function buildWallet(
     // The scriptCbor itself (used for address derivation and signing) remains unchanged.
     const scriptType = (wallet.type as "all" | "any" | "atLeast") ?? "atLeast";
     let nativeScript: NativeScript;
+    let requiredSigners = wallet.numRequiredSigners ?? 1;
+    let finalScriptType = scriptType;
+
     try {
       const decoded = decodeNativeScriptFromCbor(scriptCbor);
       nativeScript = decodedToNativeScript(decoded);
+      requiredSigners = computeRequiredSigners(decoded);
+      finalScriptType = detectTypeFromSigParents(decoded);
     } catch {
       // Fallback to placeholder if decoding fails
       nativeScript = scriptType === "atLeast"
         ? {
-            type: "atLeast",
-            required: wallet.numRequiredSigners ?? 1,
-            scripts: [],
-          }
+          type: "atLeast",
+          required: wallet.numRequiredSigners ?? 1,
+          scripts: [],
+        }
         : {
-            type: scriptType,
-            scripts: [],
-          };
+          type: scriptType,
+          scripts: [],
+        };
     }
+
+    const canStake = !!stakeScriptCbor;
+    let stakeAddress: string | undefined;
+
+    if (canStake) {
+      try {
+        const decodedStake = decodeNativeScriptFromCbor(stakeScriptCbor!);
+        const stakeScript = decodedToNativeScript(decodedStake);
+        const stakeCredentialHash = resolveNativeScriptHash(stakeScript);
+        stakeAddress = serializeRewardAddress(stakeCredentialHash, true, network as 0 | 1);
+      } catch {
+        // Fallback or leave undefined if evaluation fails
+      }
+    }
+
+    const capabilities: WalletCapabilities = {
+      isSummon: true,
+      canStake,
+      canVote: false, // DRep usually unsupported in rawImportBodies currently
+      requiredSigners,
+      scriptType: finalScriptType,
+    };
 
     // For rawImportBodies wallets, dRepId cannot be easily derived from stored CBOR
     // Set to empty string - it can be derived later if needed from the actual script
@@ -310,6 +340,8 @@ export function buildWallet(
       address,
       dRepId,
       stakeScriptCbor,
+      stakeAddress,
+      capabilities,
     } as Wallet;
   }
 
@@ -334,11 +366,30 @@ export function buildWallet(
 
     const dRepIdCip129 = buildDRepIdFromScript(nativeScript);
 
+    const capabilities: WalletCapabilities = {
+      isSummon: false,
+      canStake: !!wallet.stakeCredentialHash,
+      canVote: false,
+      requiredSigners: wallet.numRequiredSigners ?? 1,
+      scriptType: (wallet.type as "all" | "any" | "atLeast") ?? "atLeast",
+    };
+
+    let stakeAddress: string | undefined;
+    if (wallet.stakeCredentialHash) {
+      try {
+        stakeAddress = serializeRewardAddress(wallet.stakeCredentialHash, true, network as 0 | 1);
+      } catch {
+        // Ignore
+      }
+    }
+
     return {
       ...wallet,
       nativeScript,
       address,
       dRepId: dRepIdCip129,
+      stakeAddress,
+      capabilities,
     } as Wallet;
   }
 
@@ -378,10 +429,22 @@ export function buildWallet(
   // Compute DRep ID from payment script hash (SDK can override this via getDRepId)
   const dRepIdCip129 = buildDRepIdFromScript(nativeScript);
 
+  const capabilities: WalletCapabilities = {
+    isSummon: false,
+    canStake: mWallet.stakingEnabled() || mWallet.hasExternalStakeCredential(),
+    canVote: mWallet.drepEnabled(),
+    requiredSigners: mWallet.required,
+    scriptType: mWallet.type,
+  };
+
+  const stakeAddress = mWallet.getStakeAddress();
+
   return {
     ...wallet,
     nativeScript,
     address,
     dRepId: dRepIdCip129,
+    stakeAddress,
+    capabilities,
   } as Wallet;
 }

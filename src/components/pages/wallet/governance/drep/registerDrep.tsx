@@ -40,13 +40,13 @@ export default function RegisterDRep({ onClose }: RegisterDRepProps = {}) {
   const loading = useSiteStore((state) => state.loading);
   const setLoading = useSiteStore((state) => state.setLoading);
   const { newTransaction } = useTransaction();
-  const { multisigWallet } = useMultisigWallet();
+  const { multisigWallet, builtWallet } = useMultisigWallet();
   const { isProxyEnabled, selectedProxyId, setSelectedProxy } = useProxy();
   const { toast } = useToast();
 
   // Get proxies for the current wallet
   const { data: proxies, isLoading: proxiesLoading } = api.proxy.getProxiesByUserOrWallet.useQuery(
-    { 
+    {
       walletId: appWallet?.id || undefined,
       userAddress: userAddress || undefined,
     },
@@ -72,14 +72,15 @@ export default function RegisterDRep({ onClose }: RegisterDRepProps = {}) {
 
   // Helper to resolve inputs for multisig controlled txs
   const getMsInputs = useCallback(async (): Promise<{ utxos: UTxO[]; walletAddress: string }> => {
-    if (!multisigWallet?.getScript().address) {
-      throw new Error("Multisig wallet address not available");
+    const address = builtWallet?.address ?? appWallet.address;
+    if (!address) {
+      throw new Error("Wallet address not available");
     }
     if (!manualUtxos || manualUtxos.length === 0) {
       throw new Error("No UTxOs selected. Please select UTxOs from the selector.");
     }
-    return { utxos: manualUtxos, walletAddress: multisigWallet.getScript().address };
-  }, [multisigWallet?.getScript().address, manualUtxos]);
+    return { utxos: manualUtxos, walletAddress: address };
+  }, [builtWallet?.address, appWallet.address, manualUtxos]);
 
   async function createAnchor(): Promise<{
     anchorUrl: string;
@@ -110,7 +111,7 @@ export default function RegisterDRep({ onClose }: RegisterDRepProps = {}) {
       formState,
       appWallet,
     );
-    
+
     // Upload the compacted JSON-LD (readable format)
     const rawResponse = await fetch("/api/pinata-storage/put", {
       method: "POST",
@@ -125,7 +126,7 @@ export default function RegisterDRep({ onClose }: RegisterDRepProps = {}) {
     });
     const res = (await rawResponse.json()) as PutResponse;
     const anchorUrl = res.url;
-    
+
     // Compute hash from the canonicalized (normalized) form per CIP-100/CIP-119
     // The normalized form is in N-Quads format which is the canonical representation
     const anchorHash = hashDrepAnchor(metadataResult.compacted);
@@ -146,14 +147,14 @@ export default function RegisterDRep({ onClose }: RegisterDRepProps = {}) {
 
     setLoading(true);
     const txBuilder = getTxBuilder(network);
-    
+
     // For legacy wallets (no multisigWallet), use appWallet values directly (preserves input order)
     // For SDK wallets, use multisigWallet to compute DRep ID and script
     let dRepId: string;
     let drepCbor: string;
     let scriptCbor: string;
     let changeAddress: string;
-    
+
     if (multisigWallet) {
       const drepData = multisigWallet.getDRep(appWallet);
       if (!drepData) {
@@ -179,7 +180,7 @@ export default function RegisterDRep({ onClose }: RegisterDRepProps = {}) {
       scriptCbor = appWallet.scriptCbor;
       changeAddress = appWallet.address;
     }
-    
+
     if (!scriptCbor || !changeAddress) {
       throw new Error("Script or change address not found");
     }
@@ -231,9 +232,9 @@ export default function RegisterDRep({ onClose }: RegisterDRepProps = {}) {
     } catch (e) {
       console.error("DRep registration error:", e);
       // Only show toast if it's not already shown (i.e., not one of our custom errors)
-      if (e instanceof Error && !e.message.includes("Multisig wallet not connected") && 
-          !e.message.includes("DRep") && !e.message.includes("Script") && 
-          !e.message.includes("No UTxOs")) {
+      if (e instanceof Error && !e.message.includes("Multisig wallet not connected") &&
+        !e.message.includes("DRep") && !e.message.includes("Script") &&
+        !e.message.includes("No UTxOs")) {
         toast({
           title: "Registration Failed",
           description: e instanceof Error ? e.message : "An unexpected error occurred during DRep registration.",

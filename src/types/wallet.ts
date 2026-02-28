@@ -43,10 +43,20 @@ export type DbWalletWithLegacy = DbWallet & {
   rawImportBodies?: RawImportBodies | null;
 };
 
+export interface WalletCapabilities {
+  isSummon: boolean;
+  canStake: boolean;
+  canVote: boolean;
+  requiredSigners: number;
+  scriptType: "all" | "any" | "atLeast";
+}
+
 export type Wallet = DbWalletWithLegacy & {
   nativeScript: NativeScript;
   address: string;
   dRepId: string;
   stakeScriptCbor?: string;
+  stakeAddress?: string;
+  capabilities: WalletCapabilities;
 };
 

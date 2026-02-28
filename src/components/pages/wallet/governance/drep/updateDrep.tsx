@@ -34,7 +34,7 @@ export default function UpdateDRep({ onClose }: UpdateDRepProps = {}) {
   const loading = useSiteStore((state) => state.loading);
   const setLoading = useSiteStore((state) => state.setLoading);
   const { newTransaction } = useTransaction();
-  const { multisigWallet } = useMultisigWallet();
+  const { multisigWallet, builtWallet } = useMultisigWallet();
   const { isProxyEnabled, selectedProxyId } = useProxy();
 
   // UTxO selection state
@@ -42,7 +42,7 @@ export default function UpdateDRep({ onClose }: UpdateDRepProps = {}) {
 
   // Get proxies for proxy mode
   const { data: proxies } = api.proxy.getProxiesByUserOrWallet.useQuery(
-    { 
+    {
       walletId: appWallet?.id || undefined,
       userAddress: userAddress || undefined,
     },
@@ -54,14 +54,15 @@ export default function UpdateDRep({ onClose }: UpdateDRepProps = {}) {
 
   // Helper function to get multisig inputs (like in register component)
   const getMsInputs = useCallback(async (): Promise<{ utxos: UTxO[]; walletAddress: string }> => {
-    if (!multisigWallet?.getScript().address) {
-      throw new Error("Multisig wallet address not available");
+    const address = builtWallet?.address ?? appWallet.address;
+    if (!address) {
+      throw new Error("Wallet address not available");
     }
     if (!manualUtxos || manualUtxos.length === 0) {
       throw new Error("No UTxOs selected. Please select UTxOs from the selector.");
     }
-    return { utxos: manualUtxos, walletAddress: multisigWallet.getScript().address };
-  }, [multisigWallet?.getScript().address, manualUtxos]);
+    return { utxos: manualUtxos, walletAddress: address };
+  }, [builtWallet?.address, appWallet.address, manualUtxos]);
   const [formState, setFormState] = useState({
     givenName: "",
     bio: "",
@@ -88,7 +89,7 @@ export default function UpdateDRep({ onClose }: UpdateDRepProps = {}) {
       formState,
       appWallet,
     );
-    
+
     // Upload the compacted JSON-LD (readable format)
     const rawResponse = await fetch("/api/pinata-storage/put", {
       method: "POST",
@@ -103,7 +104,7 @@ export default function UpdateDRep({ onClose }: UpdateDRepProps = {}) {
     });
     const res = (await rawResponse.json()) as PutResponse;
     const anchorUrl = res.url;
-    
+
     // Compute hash from the canonicalized (normalized) form per CIP-100/CIP-119
     // The normalized form is in N-Quads format which is the canonical representation
     const anchorHash = hashDrepAnchor(metadataResult.compacted);
@@ -183,14 +184,14 @@ export default function UpdateDRep({ onClose }: UpdateDRepProps = {}) {
 
     setLoading(true);
     const txBuilder = getTxBuilder(network);
-    
+
     // For legacy wallets (no multisigWallet), use appWallet values directly (preserves input order)
     // For SDK wallets, use multisigWallet to compute DRep ID and script
     let dRepId: string;
     let drepCbor: string;
     let scriptCbor: string;
     let changeAddress: string;
-    
+
     if (multisigWallet) {
       const drepData = multisigWallet.getDRep(appWallet);
       if (!drepData) {
@@ -216,7 +217,7 @@ export default function UpdateDRep({ onClose }: UpdateDRepProps = {}) {
       scriptCbor = appWallet.scriptCbor;
       changeAddress = appWallet.address;
     }
-    
+
     if (!scriptCbor || !changeAddress) {
       throw new Error("Script or change address not found");
     }
@@ -246,13 +247,13 @@ export default function UpdateDRep({ onClose }: UpdateDRepProps = {}) {
           anchorUrl: anchorUrl,
           anchorDataHash: anchorHash,
         });
-      
+
       // Only add certificateScript if it's different from the spending script
       // to avoid "extraneous scripts" error
       if (drepCbor !== scriptCbor) {
         txBuilder.certificateScript(drepCbor);
       }
-      
+
       txBuilder.changeAddress(changeAddress);
 
       await newTransaction({

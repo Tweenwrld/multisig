@@ -4,7 +4,7 @@ import { cors, addCorsCacheBustingHeaders } from "@/lib/cors";
 //remove all wallet input utxos found in pending txs from the whole pool of txs.
 import type { Wallet as DbWallet } from "@prisma/client";
 import type { NextApiRequest, NextApiResponse } from "next";
-import { buildMultisigWallet } from "@/utils/common";
+import { buildWallet } from "@/utils/common";
 import { getProvider } from "@/utils/get-provider";
 import { addressToNetwork } from "@/utils/multisigSDK";
 import type { UTxO } from "@meshsdk/core";
@@ -21,7 +21,7 @@ export default async function handler(
 ) {
   // Add cache-busting headers for CORS
   addCorsCacheBustingHeaders(res);
-  
+
   if (!applyRateLimit(req, res, { keySuffix: "v1/freeUtxos" })) {
     return;
   }
@@ -90,11 +90,12 @@ export default async function handler(
     if (!walletFetch) {
       return res.status(404).json({ error: "Wallet not found" });
     }
-    const mWallet = buildMultisigWallet(walletFetch as DbWalletWithLegacy);
+    const mNetwork = addressToNetwork(address);
+    const mWallet = buildWallet(walletFetch as DbWalletWithLegacy, mNetwork);
     if (!mWallet) {
       return res.status(500).json({ error: "Wallet could not be constructed" });
     }
-    const addr = mWallet.getScript().address;
+    const addr = mWallet.address;
     const network = addressToNetwork(addr);
 
     const blockchainProvider = getProvider(network);

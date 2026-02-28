@@ -101,7 +101,7 @@ export default async function handler(
 ) {
   // Add cache-busting headers for CORS
   addCorsCacheBustingHeaders(res);
-  
+
   await cors(req, res);
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -113,12 +113,12 @@ export default async function handler(
   // Verify authentication for all requests
   const authToken = req.headers.authorization?.replace('Bearer ', '');
   const expectedToken = process.env.SNAPSHOT_AUTH_TOKEN;
-  
+
   if (!expectedToken) {
     console.error('SNAPSHOT_AUTH_TOKEN environment variable not set');
     return res.status(500).json({ error: "Server configuration error" });
   }
-  
+
   if (!authToken || authToken !== expectedToken) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -167,7 +167,7 @@ export default async function handler(
   }
 
   const parsedBatchNumber = parseInt(batchNumber, 10);
-  
+
   if (isNaN(parsedBatchNumber)) {
     return res.status(400).json(createErrorResponse('batchNumber must be a valid integer'));
   }
@@ -186,7 +186,7 @@ export default async function handler(
   }
 
   const parsedBatchSize = parseInt(batchSize, 10);
-  
+
   if (isNaN(parsedBatchSize)) {
     return res.status(400).json(createErrorResponse('batchSize must be a valid integer'));
   }
@@ -272,47 +272,15 @@ export default async function handler(
           }
         }
 
-        // Build wallet conditionally: use MultisigSDK ordering if signersStakeKeys exist
+        // Build wallet using the centralized buildWallet utility
         let walletAddress: string;
         try {
-          const hasStakeKeys = !!(wallet.signersStakeKeys && wallet.signersStakeKeys.length > 0);
-          if (hasStakeKeys) {
-            // Build MultisigSDK wallet with ordered keys
-            const keys: MultisigKey[] = [];
-            wallet.signersAddresses.forEach((addr: string, i: number) => {
-              if (!addr) return;
-              try {
-                keys.push({ keyHash: resolvePaymentKeyHash(addr), role: 0, name: wallet.signersDescriptions[i] || "" });
-              } catch {}
-            });
-            wallet.signersStakeKeys?.forEach((stakeKey: string, i: number) => {
-              if (!stakeKey) return;
-              try {
-                keys.push({ keyHash: resolveStakeKeyHash(stakeKey), role: 2, name: wallet.signersDescriptions[i] || "" });
-              } catch {}
-            });
-            if (keys.length === 0 && !wallet.stakeCredentialHash) {
-              throw new Error("No valid keys or stakeCredentialHash provided");
-            }
-            const mWallet = new MultisigWallet(
-              wallet.name,
-              keys,
-              wallet.description ?? "",
-              wallet.numRequiredSigners ?? 1,
-              network,
-              wallet.stakeCredentialHash as undefined | string,
-              (wallet.type as any) || "atLeast"
-            );
-            walletAddress = mWallet.getScript().address;
-          } else {
-            // Fallback: build the wallet without enforcing key ordering (legacy payment-script build)
-            const builtWallet = buildWallet(wallet as DbWalletWithLegacy, network);
-            walletAddress = builtWallet.address;
-          }
+          const builtWallet = buildWallet(wallet as DbWalletWithLegacy, network);
+          walletAddress = builtWallet.address;
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown wallet build error';
           console.error(`Failed to build wallet for ${wallet.id.slice(0, 8)}...:`, errorMessage);
-          
+
           failures.push({
             walletId: wallet.id.slice(0, 8),
             errorType: "wallet_build_failed",
@@ -325,15 +293,15 @@ export default async function handler(
 
         // Determine which address to use
         const blockchainProvider = getProvider(network);
-        
+
         let utxos: UTxO[] = [];
-        
+
         try {
           utxos = await blockchainProvider.fetchAddressUTxOs(walletAddress);
         } catch (utxoError) {
           const errorMessage = utxoError instanceof Error ? utxoError.message : 'Unknown UTxO fetch error';
           console.error(`Failed to fetch UTxOs for wallet ${wallet.id.slice(0, 8)}...:`, errorMessage);
-          
+
           // Track UTxO fetch failures
           failures.push({
             walletId: wallet.id.slice(0, 8),
@@ -344,7 +312,7 @@ export default async function handler(
           failedInBatch++;
           continue;
         }
-        
+
         // If we still have no UTxOs, try the other network as fallback
         if (utxos.length === 0) {
           const fallbackNetwork = network === 0 ? 1 : 0;
@@ -355,7 +323,7 @@ export default async function handler(
           } catch (fallbackError) {
             const errorMessage = fallbackError instanceof Error ? fallbackError.message : 'Unknown fallback UTxO fetch error';
             console.error(`Failed to fetch UTxOs for wallet ${wallet.id.slice(0, 8)}... on fallback network ${fallbackNetwork}:`, errorMessage);
-            
+
             // Track fallback UTxO fetch failures
             failures.push({
               walletId: wallet.id.slice(0, 8),
@@ -367,10 +335,10 @@ export default async function handler(
             continue;
           }
         }
-        
+
         // Get balance for this wallet
         const balance = getBalance(utxos);
-        
+
         // Calculate ADA balance
         const adaBalance = balance.lovelace ? parseInt(balance.lovelace) / 1000000 : 0;
         const roundedAdaBalance = Math.round(adaBalance * 100) / 100;
@@ -386,7 +354,7 @@ export default async function handler(
         };
 
         walletBalances.push(walletBalance);
-        
+
         // Track network-specific data
         if (network === 1) {
           mainnetWallets++;
@@ -395,19 +363,19 @@ export default async function handler(
           testnetWallets++;
           testnetAdaBalance += roundedAdaBalance;
         }
-        
+
         processedInBatch++;
-        
+
         console.log(`    ✅ Balance: ${roundedAdaBalance} ADA (${network === 1 ? 'mainnet' : 'testnet'})`);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         console.error(`Error processing wallet ${wallet.id.slice(0, 8)}...:`, errorMessage);
-        
+
         // Determine error type based on error message
         let errorType = "processing_failed";
         let sanitizedMessage = "Wallet processing failed";
-        
+
         if (errorMessage.includes("fetchAddressUTxOs") || errorMessage.includes("UTxO")) {
           errorType = "utxo_fetch_failed";
           sanitizedMessage = "Failed to fetch UTxOs from blockchain";
@@ -418,14 +386,14 @@ export default async function handler(
           errorType = "balance_calculation_failed";
           sanitizedMessage = "Failed to calculate wallet balance";
         }
-        
+
         failures.push({
           walletId: wallet.id.slice(0, 8),
           errorType,
           errorMessage: sanitizedMessage,
           walletStructure: getWalletStructure(wallet)
         });
-        
+
         failedInBatch++;
       }
     }
@@ -434,7 +402,7 @@ export default async function handler(
     let snapshotsStored = 0;
     if (walletBalances.length > 0) {
       console.log(`💾 Storing ${walletBalances.length} balance snapshots...`);
-      
+
       const snapshotPromises = walletBalances.map(async (walletBalance: WalletBalance) => {
         try {
           await db.balanceSnapshot.create({
@@ -456,7 +424,7 @@ export default async function handler(
 
       const snapshotResults = await Promise.all(snapshotPromises);
       snapshotsStored = snapshotResults.reduce((sum: number, result: number) => sum + result, 0);
-      
+
       console.log(`✅ Successfully stored ${snapshotsStored} balance snapshots`);
     }
 
@@ -497,8 +465,8 @@ export default async function handler(
 
     const response: BatchResponse = {
       success: true,
-      message: isComplete 
-        ? `All ${totalBatches} batches completed successfully` 
+      message: isComplete
+        ? `All ${totalBatches} batches completed successfully`
         : `Batch ${currentBatch}/${totalBatches} completed. Call next batch with batchNumber: ${currentBatch + 1}`,
       progress,
       timestamp: new Date().toISOString(),
@@ -509,7 +477,7 @@ export default async function handler(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('❌ Batch snapshot process failed:', errorMessage);
-    
+
     res.status(500).json({
       success: false,
       message: `Batch snapshot process failed: ${errorMessage}`,

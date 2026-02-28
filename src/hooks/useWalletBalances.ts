@@ -60,7 +60,7 @@ export default function useWalletBalances(
   const setBalance = useWalletBalancesStore((state) => state.setBalance);
   const getCachedBalance = useWalletBalancesStore((state) => state.getCachedBalance);
   const clearExpiredBalances = useWalletBalancesStore((state) => state.clearExpiredBalances);
-  
+
   const [balances, setBalances] = useState<Record<string, number | null>>({});
   const [loadingStates, setLoadingStates] = useState<
     Record<string, WalletBalanceState>
@@ -109,22 +109,18 @@ export default function useWalletBalances(
           ? addressToNetwork(fallbackAddress)
           : network;
 
-        if (walletType === "sdk") {
-          const mWallet = buildMultisigWallet(wallet, walletNetwork);
-          return mWallet?.getScript().address || wallet.address;
-        }
+        const builtWallet = buildWallet(wallet, walletNetwork);
 
         if (walletType === "summon") {
           const importedAddress =
             wallet.rawImportBodies?.multisig?.address || wallet.address;
           const importedPaymentCbor =
             wallet.rawImportBodies?.multisig?.payment_script;
-          const summonWallet = buildWallet(wallet, walletNetwork);
 
           // Build payment CBOR from the wallet's native script and compare hashes
           // with imported payment CBOR to ensure we are checking the same script.
           const builtPaymentCbor = serializeNativeScript(
-            summonWallet.nativeScript,
+            builtWallet.nativeScript,
             undefined,
             walletNetwork,
           ).scriptCbor;
@@ -139,14 +135,13 @@ export default function useWalletBalances(
             console.warn(
               `[useWalletBalances] Summon payment script mismatch for wallet ${wallet.id}: importedHash=${importedPaymentHash}, builtHash=${builtPaymentHash}`,
             );
-            return importedAddress || summonWallet.address;
+            return importedAddress || builtWallet.address;
           }
 
-          return summonWallet.address || importedAddress;
+          return builtWallet.address || importedAddress;
         }
 
-        // legacy
-        return buildWallet(wallet, walletNetwork).address;
+        return builtWallet.address || wallet.address;
       } catch {
         return wallet.address;
       }
@@ -205,10 +200,10 @@ export default function useWalletBalances(
         // Update local state
         setBalances((prev) => ({ ...prev, [wallet.id]: balance }));
         setLoadingStates((prev) => ({ ...prev, [wallet.id]: "loaded" }));
-        
+
         // Cache the balance in Zustand store (including successful fetches)
         setBalance(wallet.id, balance, walletAddress);
-        
+
         fetchedWalletsRef.current.add(wallet.id);
       } catch (error: unknown) {
         // 404 is expected for never-used addresses.
@@ -324,7 +319,7 @@ export default function useWalletBalances(
         fetchedWalletsRef.current.add(wallet.id);
       }
     });
-    
+
     if (Object.keys(cached).length > 0) {
       setBalances((prev) => ({ ...prev, ...cached }));
     }

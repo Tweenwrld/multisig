@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import { api } from "@/utils/api";
 import { useSiteStore } from "@/lib/zustand/site";
 import { useUserStore } from "@/lib/zustand/user";
-import { buildMultisigWallet } from "@/utils/common";
+import { buildMultisigWallet, buildWallet } from "@/utils/common";
 import { DbWalletWithLegacy } from "@/types/wallet";
 
 export default function useMultisigWallet() {
@@ -20,8 +20,14 @@ export default function useMultisigWallet() {
     },
   );
   if (wallet) {
-    return { multisigWallet: buildMultisigWallet(wallet as DbWalletWithLegacy, network), wallet, isLoading };
+    const dbWallet = wallet as DbWalletWithLegacy;
+    return {
+      multisigWallet: buildMultisigWallet(dbWallet, network),
+      builtWallet: buildWallet(dbWallet, network),
+      wallet: dbWallet,
+      isLoading,
+    };
   }
 
-  return { multisigWallet: undefined, wallet: undefined, isLoading };
+  return { multisigWallet: undefined, builtWallet: undefined, wallet: undefined, isLoading };
 }
