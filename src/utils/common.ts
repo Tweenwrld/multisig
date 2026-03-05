@@ -244,6 +244,12 @@ export function buildMultisigWallet(
  * - Type 2 (Summon): Uses rawImportBodies data as-is
  * - Type 0 (Legacy): Builds native script directly from payment keys in input order
  * - Type 1 (SDK): Uses MultisigWallet for all operations
+ *
+ * @param wallet - Database wallet record with optional rawImportBodies
+ * @param network - Network identifier (0 = testnet, 1 = mainnet)
+ * @param utxos - Optional UTxO set for SDK address selection
+ * @returns Fully constructed Wallet with nativeScript, address, and capabilities
+ * @throws Error if wallet is missing or required script data is unavailable
  */
 export function buildWallet(
   wallet: DbWalletWithLegacy,
@@ -293,8 +299,12 @@ export function buildWallet(
       nativeScript = decodedToNativeScript(decoded);
       requiredSigners = computeRequiredSigners(decoded);
       finalScriptType = detectTypeFromSigParents(decoded);
-    } catch {
-      // Fallback to placeholder if decoding fails
+    } catch (error) {
+      console.warn(
+        `[buildWallet] Payment script CBOR decode failed for wallet=${wallet.id}:`,
+        error instanceof Error ? error.message : error,
+        { scriptCborLength: scriptCbor?.length, walletType: 'summon' },
+      );
       nativeScript = scriptType === "atLeast"
         ? {
           type: "atLeast",
@@ -316,8 +326,12 @@ export function buildWallet(
         const stakeScript = decodedToNativeScript(decodedStake);
         const stakeCredentialHash = resolveNativeScriptHash(stakeScript);
         stakeAddress = serializeRewardAddress(stakeCredentialHash, true, network as 0 | 1);
-      } catch {
-        // Fallback or leave undefined if evaluation fails
+      } catch (error) {
+        console.warn(
+          `[buildWallet] Stake script CBOR decode failed for wallet=${wallet.id}:`,
+          error instanceof Error ? error.message : error,
+          { stakeScriptCborLength: stakeScriptCbor?.length, walletType: 'summon' },
+        );
       }
     }
 

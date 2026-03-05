@@ -170,6 +170,10 @@ describe('pendingTransactions API route', () => {
         user: { id: address },
         expires: expect.any(String),
       }),
+      sessionAddress: address,
+      sessionWallets: [address],
+      primaryWallet: address,
+      ip: expect.any(String),
     });
     expect(walletGetWalletMock).toHaveBeenCalledWith({ walletId, address });
     expect(transactionGetPendingTransactionsMock).toHaveBeenCalledWith({ walletId });

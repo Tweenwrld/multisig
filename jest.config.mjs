@@ -13,8 +13,14 @@ export default {
       useESM: true
     }],
   },
+  // Transform ESM-only dependencies (superjson, etc.) for Jest compatibility
+  transformIgnorePatterns: [
+    'node_modules/(?!(superjson)/)',
+  ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    // Use manual mock for ESM-only superjson module
+    '^superjson$': '<rootDir>/__mocks__/superjson.ts',
   },
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
